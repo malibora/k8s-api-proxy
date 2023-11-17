@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: api-proxy  # Define the namespace for all resources
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: proxy-service
+  namespace: api-proxy  
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-reader
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "secrets"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: read-nodes
+subjects:
+- kind: ServiceAccount
+  name: proxy-service
+  namespace: api-proxy  
+roleRef:
+  kind: ClusterRole
+  name: node-reader
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-key-secret
+  namespace: api-proxy  
+type: Opaque
+data:
+  api-key: c2VjcmV0MTIzNA==  # Replace with your base64 encoded API key
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-info-app
+  namespace: api-proxy  
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: node-info-app
+  template:
+    metadata:
+      labels:
+        app: node-info-app
+    spec:
+      serviceAccountName: proxy-service
+      containers:
+        - name: node-info-app
+          image: bpopov/k8s-api-proxy  # Replace with your Docker image
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: K8S_SECRET_NAME
+              value: api-key-secret  
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-info-service
+  namespace: api-proxy  
+spec:
+  type: NodePort
+  selector:
+    app: node-info-app
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+      nodePort: 30000  # Change this to a port of your choice within the NodePort range
